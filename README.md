@@ -2,6 +2,8 @@
 
 ![Screenshot](screenshot.png)
 
+See it in acton here, automatically debugging a buffer overflow: https://x.com/full_duplex/status/1904770477698277847
+
 ## Overview
 
 LLDB-MCP is a tool that integrates the LLDB debugger with Claude's Model Context Protocol (MCP). This integration allows Claude to start, control, and interact with LLDB debugging sessions directly, enabling AI-assisted debugging workflows.
