@@ -41,10 +41,12 @@ The tool provides a comprehensive set of commands for working with LLDB, includi
    - Open the Claude desktop app configuration
    - Add the following to your MCP configuration:
    ```json
-   "lldb-mcp": {
-     "command": "python3",
-     "args": ["/path/to/lldb-mcp/lldb_mcp.py"],
-     "disabled": false
+   "mcpServers": {
+     "lldb-mcp": {
+       "command": "python3",
+       "args": ["/path/to/lldb-mcp/lldb_mcp.py"],
+       "disabled": false
+     }
    }
    ```
 
