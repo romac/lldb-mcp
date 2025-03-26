@@ -1,5 +1,7 @@
 # LLDB-MCP
 
+![Screenshot](screenshot.png)
+
 ## Overview
 
 LLDB-MCP is a tool that integrates the LLDB debugger with Claude's Model Context Protocol (MCP). This integration allows Claude to start, control, and interact with LLDB debugging sessions directly, enabling AI-assisted debugging workflows.
