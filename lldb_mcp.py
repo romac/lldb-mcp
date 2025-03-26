@@ -9,11 +9,20 @@ import pty
 import fcntl
 import termios
 import struct
+import argparse
 from typing import Dict, List, Optional, Any, AsyncIterator
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP, Context
+
+# Global debug flag - set to False by default
+DEBUG = False
+
+def debug_log(message: str) -> None:
+    """Print debug messages only when DEBUG flag is enabled"""
+    if DEBUG:
+        print(f"[DEBUG] {message}")
 
 # Class to handle LLDB sessions
 class LldbSession:
@@ -29,11 +38,11 @@ class LldbSession:
     
     async def start(self) -> str:
         """Start the LLDB process with a PTY"""
-        print(f"Starting LLDB process with path: {self.lldb_path}")
+        debug_log(f"Starting LLDB process with path: {self.lldb_path}")
         
         # Create a pseudo-terminal pair
         self.master_fd, self.slave_fd = pty.openpty()
-        print(f"Created PTY pair: master={self.master_fd}, slave={self.slave_fd}")
+        debug_log(f"Created PTY pair: master={self.master_fd}, slave={self.slave_fd}")
         
         # Make the terminal raw
         old_settings = termios.tcgetattr(self.slave_fd)
@@ -50,7 +59,7 @@ class LldbSession:
             stderr=self.slave_fd,
             cwd=self.working_dir
         )
-        print(f"LLDB process created with PID: {self.process.pid}")
+        debug_log(f"LLDB process created with PID: {self.process.pid}")
         
         # Close slave end in parent process
         os.close(self.slave_fd)
@@ -61,14 +70,14 @@ class LldbSession:
         fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
         
         # Wait for initial prompt
-        print("Waiting for initial prompt...")
+        debug_log("Waiting for initial prompt...")
         output = await self.read_until_prompt()
-        print("Initial prompt received")
+        debug_log("Initial prompt received")
 
         self.ready = True
         
         # Send version command to confirm LLDB is working
-        print("Sending version command")
+        debug_log("Sending version command")
         version_output = await self.execute_command("version")
         output += version_output
         
@@ -86,7 +95,7 @@ class LldbSession:
             raise RuntimeError("LLDB session is not ready: process has terminated, code: %d" % self.process.returncode)
         
         # Write command to master fd
-        print(f"Executing command: {command}")
+        debug_log(f"Executing command: {command}")
         os.write(self.master_fd, f"{command}\n".encode())
         
         # Read response until prompt
@@ -101,19 +110,19 @@ class LldbSession:
         prompt_pattern = b"(lldb)"
         
         start_time = asyncio.get_event_loop().time()
-        print("Starting to read until prompt")
+        debug_log("Starting to read until prompt")
         
         # Read until we see the prompt or timeout
         while True:
             # Check for timeout
             current_time = asyncio.get_event_loop().time()
             if current_time - start_time > 10.0:
-                print(f"Global timeout reached after {current_time - start_time:.1f} seconds")
+                debug_log(f"Global timeout reached after {current_time - start_time:.1f} seconds")
                 return buffer.decode('utf-8', errors='replace') + "\n[Timeout waiting for LLDB response]"
             
             # Check if process has terminated
             if self.process and self.process.returncode is not None:
-                print(f"Process terminated with code: {self.process.returncode}")
+                debug_log(f"Process terminated with code: {self.process.returncode}")
                 if buffer:
                     return buffer.decode('utf-8', errors='replace')
                 raise RuntimeError(f"LLDB process terminated with code {self.process.returncode}")
@@ -122,32 +131,32 @@ class LldbSession:
                 # Try to read from the master fd
                 chunk = os.read(self.master_fd, 1024)
                 if chunk:
-                    print(f"Read {len(chunk)} bytes from PTY")
+                    debug_log(f"Read {len(chunk)} bytes from PTY")
                     buffer += chunk
                     
                     # Print readable content for debugging
                     try:
                         decoded = chunk.decode('utf-8', errors='replace')
-                        print(f"Read data: {decoded.strip()}")
+                        debug_log(f"Read data: {decoded.strip()}")
                     except:
                         pass
                     
                     # Check if buffer contains the prompt
                     if prompt_pattern in buffer:
-                        print("Found LLDB prompt in buffer")
+                        debug_log("Found LLDB prompt in buffer")
                         return buffer.decode('utf-8', errors='replace')
             except BlockingIOError:
                 # No data available yet, yield control
                 await asyncio.sleep(0.1)
             except Exception as e:
-                print(f"Error reading from PTY: {str(e)}")
+                debug_log(f"Error reading from PTY: {str(e)}")
                 if buffer:
                     return buffer.decode('utf-8', errors='replace') + f"\n[Error reading from LLDB: {str(e)}]"
                 raise RuntimeError(f"Error reading from LLDB: {str(e)}")
     
     async def cleanup(self):
         """Clean up LLDB resources"""
-        print("Cleaning up LLDB session")
+        debug_log("Cleaning up LLDB session")
         try:
             if self.master_fd is not None:
                 # Send quit command
@@ -156,36 +165,36 @@ class LldbSession:
                     # Wait briefly for the process to exit
                     await asyncio.sleep(0.5)
                 except Exception as e:
-                    print(f"Error sending quit command: {e}")
+                    debug_log(f"Error sending quit command: {e}")
                 
             if self.process and self.process.returncode is None:
-                print("Terminating LLDB process")
+                debug_log("Terminating LLDB process")
                 self.process.terminate()
                 try:
                     await asyncio.wait_for(self.process.wait(), 2.0)
                 except asyncio.TimeoutError:
-                    print("Force killing LLDB process")
+                    debug_log("Force killing LLDB process")
                     self.process.kill()
                     await self.process.wait()
                     
             # Close the PTY master fd
             if self.master_fd is not None:
-                print(f"Closing master fd: {self.master_fd}")
+                debug_log(f"Closing master fd: {self.master_fd}")
                 os.close(self.master_fd)
                 self.master_fd = None
                 
             # Close the PTY slave fd if it's still open
             if self.slave_fd is not None:
-                print(f"Closing slave fd: {self.slave_fd}")
+                debug_log(f"Closing slave fd: {self.slave_fd}")
                 os.close(self.slave_fd)
                 self.slave_fd = None
                 
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            debug_log(f"Error during cleanup: {e}")
         finally:
             self.process = None
             self.ready = False
-            print("LLDB session cleanup completed")
+            debug_log("LLDB session cleanup completed")
 
 
 @dataclass
@@ -226,62 +235,62 @@ def get_session(ctx: Context, session_id: str) -> LldbSession:
 async def lldb_start(ctx: Context, lldb_path: str = "lldb", working_dir: str = None) -> str:
     """Start a new LLDB session"""
     session_id = str(uuid.uuid4())
-    print(f"Starting new LLDB session with ID: {session_id}")
+    debug_log(f"Starting new LLDB session with ID: {session_id}")
     
     try:
         # Verify lldb path
         try:
-            print(f"Verifying lldb path: {lldb_path}")
+            debug_log(f"Verifying lldb path: {lldb_path}")
             proc = await asyncio.create_subprocess_exec(
                 lldb_path, "--version",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            print(f"Communicating with lldb")
+            debug_log(f"Communicating with lldb")
             try:
                 stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                print(f"Received response from lldb")
+                debug_log(f"Received response from lldb")
                 if proc.returncode != 0:
                     error_msg = stderr.decode('utf-8', errors='replace').strip()
                     return f"Failed to start LLDB: Invalid lldb path '{lldb_path}'. Error: {error_msg}"
             except asyncio.TimeoutError:
-                print("Timeout while verifying lldb path")
+                debug_log("Timeout while verifying lldb path")
                 proc.kill()
                 await proc.wait()
                 return f"Failed to start LLDB: Timeout while verifying lldb path '{lldb_path}'"
         except Exception as e:
-            print(f"Error verifying lldb path: {str(e)}")
+            debug_log(f"Error verifying lldb path: {str(e)}")
             return f"Failed to start LLDB: Invalid lldb path '{lldb_path}'. Error: {str(e)}"
         
         # Use provided working directory or current dir
         working_dir = working_dir or os.getcwd()
-        print(f"Using working directory: {working_dir}")
+        debug_log(f"Using working directory: {working_dir}")
         
         # Create new LLDB session
         session = LldbSession(session_id=session_id, lldb_path=lldb_path, working_dir=working_dir)
-        print(f"Created new LLDB session")
+        debug_log(f"Created new LLDB session")
         
         # Start LLDB process with timeout
         try:
-            print("Starting LLDB process...")
+            debug_log("Starting LLDB process...")
             output = await asyncio.wait_for(session.start(), timeout=10.0)
-            print(f"LLDB session started successfully")
+            debug_log(f"LLDB session started successfully")
         except asyncio.TimeoutError:
-            print("Timeout while starting LLDB session")
+            debug_log("Timeout while starting LLDB session")
             await session.cleanup()
             return f"Failed to start LLDB: Timeout while initializing LLDB session"
         except Exception as e:
-            print(f"Error starting LLDB session: {str(e)}")
+            debug_log(f"Error starting LLDB session: {str(e)}")
             await session.cleanup()
             return f"Failed to start LLDB: {str(e)}"
         
         # Store session in context
         ctx.request_context.lifespan_context.sessions[session_id] = session
-        print(f"Stored session in context")
+        debug_log(f"Stored session in context")
         return f"LLDB session started with ID: {session_id}\n\nOutput:\n{output}"
     
     except Exception as e:
-        print(f"Unexpected error in lldb_start: {str(e)}")
+        debug_log(f"Unexpected error in lldb_start: {str(e)}")
         return f"Failed to start LLDB: {str(e)}"
 
 
@@ -764,7 +773,7 @@ async def lldb_help(ctx: Context, session_id: str, command: str = None) -> str:
    try:
        session = get_session(ctx, session_id)
 
-       print(f"Getting help for command: {command}")
+       debug_log(f"Getting help for command: {command}")
        
        if command:
            output = await session.execute_command(f"help {command}")
@@ -780,7 +789,17 @@ async def lldb_help(ctx: Context, session_id: str, command: str = None) -> str:
 
 
 if __name__ == "__main__":
+   # Parse command line arguments
+   parser = argparse.ArgumentParser(description="LLDB MCP Server")
+   parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+   args = parser.parse_args()
+   
+   # Set global debug flag if enabled via command line
+   if args.debug:
+       DEBUG = True
+       debug_log("Debug logging enabled")
+   
    try:
        mcp.run()
    except KeyboardInterrupt:
-       print("LLDB-MCP server stopped")
+       debug_log("LLDB-MCP server stopped")
