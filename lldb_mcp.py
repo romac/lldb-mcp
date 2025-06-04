@@ -798,17 +798,22 @@ async def lldb_help(ctx: Context, session_id: str, command: str | None = None) -
 
 
 if __name__ == "__main__":
-   # Parse command line arguments
-   parser = argparse.ArgumentParser(description="LLDB MCP Server")
-   parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-   args = parser.parse_args()
-   
-   # Set global debug flag if enabled via command line
-   if args.debug:
-       DEBUG = True
-       debug_log("Debug logging enabled")
-   
-   try:
-       mcp.run()
-   except KeyboardInterrupt:
-       debug_log("LLDB-MCP server stopped")
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="LLDB MCP Server")
+    # Debug logging
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    # Transport option (SEE or stdio)
+    parser.add_argument("--transport", choices=["stdio", "streamable-http"], default="stdio",
+                         help="Transport method for MCP server (default: stdio)")
+
+    args = parser.parse_args()
+
+    # Set global debug flag if enabled via command line
+    if args.debug:
+        DEBUG = True
+        debug_log("Debug logging enabled")
+
+    try:
+        mcp.run(transport=args.transport)
+    except KeyboardInterrupt:
+        debug_log("LLDB-MCP server stopped")
